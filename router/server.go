@@ -2,7 +2,6 @@ package router
 
 import (
 	"burnclub/db"
-	"burnclub/docs"
 	"context"
 	"fmt"
 
@@ -30,7 +29,6 @@ func SetupServer() *Server {
 
 	// gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	docs.SwaggerInfo.BasePath = "/api/v1"
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
@@ -47,10 +45,6 @@ func SetupServer() *Server {
 
 	v1 := burnclubServer.Router.Group("/api/v1")
 	burnclubServer.initUserRoutes(v1)
-	burnclubServer.initPostRoutes(v1)
-	burnclubServer.initWalletRoutes(v1)
-	burnclubServer.initClubRoutes(v1)
-	burnclubServer.initDisputesRoutes(v1)
 	return &burnclubServer
 }
 
