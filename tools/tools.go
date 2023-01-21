@@ -2,9 +2,20 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"cloud.google.com/go/firestore"
+	"github.com/joho/godotenv"
 )
+
+func goDotEnvVariable(key string) string {
+	err := godotenv.Load(".env")
+	if err != nil {
+		fmt.Println("Error loading .env file")
+	}
+	return os.Getenv(key)
+}
 
 func Contains(s []interface{}, value string) bool {
 	for _, val := range s {

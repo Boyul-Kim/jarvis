@@ -1,6 +1,7 @@
 package router
 
 import (
+	"burnclub/tools"
 	"context"
 	"fmt"
 
@@ -25,11 +26,19 @@ type EditUser struct {
 	Image    string `json:"image"`
 }
 
-type SignIn struct {
-	Uid         string `json:"uid"`
-	Email       string `json:"email"`
-	Name        string `json:"name"`
-	OnboardType string `json:"onboardType"`
+type LoginInfo struct {
+	Uid      string `json:"uid"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
+type SignUpInfo struct {
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Password string `json:"password"`
+	Username string `json:"username"`
 }
 
 func (s *Server) initUserRoutes(rg *gin.RouterGroup) {
@@ -42,30 +51,101 @@ func (s *Server) initUserRoutes(rg *gin.RouterGroup) {
 }
 
 func (s *Server) UserSignIn(c *gin.Context) {
-	var bindData SignIn
+	var bindData LoginInfo
+
 	if err := c.ShouldBindBodyWith(&bindData, binding.JSON); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "Could not bind token data."})
 		return
 	}
-	query, _ := s.Database.Collection("users").Where("authId", "==", bindData.Uid).Documents(context.TODO()).GetAll()
-	if query == nil {
-		fmt.Println("User does not exist yet. Creating.", query)
-		doc, _, err := s.Database.Collection("users").Add(context.TODO(), map[string]interface{}{
-			"authId": bindData.Uid,
-			"email":  bindData.Email,
-			"name":   bindData.Name,
-		})
+
+	switch onboard := c.MustGet("OnboardType"); onboard {
+	case "Google":
+		query, _ := s.Database.Collection("users").Where("authId", "==", bindData.Uid).Documents(context.TODO()).GetAll()
+		if query == nil {
+			fmt.Println("User does not exist yet. Creating.", query)
+			doc, _, err := s.Database.Collection("users").Add(context.TODO(), map[string]interface{}{
+				"authId":         bindData.Uid,
+				"email":          bindData.Email,
+				"name":           bindData.Name,
+				"onboardingType": onboard,
+			})
+			if err != nil {
+				c.AbortWithStatusJSON(400, gin.H{"error": "Error trying to create new user."})
+				return
+			}
+			c.JSON(200, gin.H{
+				"data":   "Account successfully created!",
+				"result": doc,
+			})
+			return
+		}
+		c.JSON(200, gin.H{"data": "Successfully signed in!"})
+	case "Regular":
+		query, err := s.Database.Collection("users").Where("authId", "==", bindData.Uid).Documents(context.TODO()).GetAll()
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "Error trying to create new user."})
+			c.AbortWithStatusJSON(404, gin.H{"error": "Error trying to find user."})
+			return
+		}
+		verified := tools.VerifyPassword(bindData.Password, query[0].Data()["hashedPassword"].(string))
+		if verified != nil {
+			c.AbortWithStatusJSON(404, gin.H{"error": "Incorrect password."})
+			return
+		}
+		token, tokenErr := tools.GenerateToken(query[0].Ref.ID)
+		fmt.Println("TOKEN", token)
+		if tokenErr != nil {
+			c.AbortWithStatusJSON(404, gin.H{"error": "Error while trying to generate token."})
 			return
 		}
 		c.JSON(200, gin.H{
-			"data":   "Account successfully created!",
-			"result": doc,
+			"message": "succesfully logged in!",
+			"result":  token,
 		})
+	default:
+		fmt.Println("ONBOARDING TYPE NOT SPECIFIED")
+	}
+
+}
+
+func (s *Server) UserSignUp(c *gin.Context) {
+	var bindData SignUpInfo
+	if err := c.ShouldBindBodyWith(&bindData, binding.JSON); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": "Could not bind token data."})
 		return
 	}
-	c.JSON(200, gin.H{"data": "Successfully signed in!"})
+	switch onboard := c.MustGet("OnboardType"); onboard {
+	case "Regular":
+		query, _ := s.Database.Collection("users").Where("username", "==", bindData.Username).Documents(context.TODO()).GetAll()
+		if query == nil {
+			hashPassword := tools.HashPassword(bindData.Password)
+			fmt.Println("HASH PASSWORD", hashPassword)
+			authId := tools.AuthIdGenerator()
+			fmt.Println("AUTH ID", authId)
+			//need to create auth id generator for normal onboarding
+			doc, _, err := s.Database.Collection("users").Add(context.TODO(), map[string]interface{}{
+				"email":          bindData.Email,
+				"name":           bindData.Name,
+				"hashedPassword": string(hashPassword),
+				"onboardType":    onboard,
+				"authId":         authId,
+			})
+			if err != nil {
+				c.AbortWithStatusJSON(400, gin.H{"error": "Error trying to create new user."})
+				return
+			}
+			c.JSON(200, gin.H{
+				"data":   "Account successfully created!",
+				"result": doc,
+			})
+			return
+		}
+		c.JSON(404, gin.H{
+			"data": "Account not found!",
+		})
+		return
+	default:
+		fmt.Println("ONBOARDING TYPE NOT SPECIFIED")
+	}
 }
 
 func (s *Server) FetchUserDetailSelf(c *gin.Context) {
